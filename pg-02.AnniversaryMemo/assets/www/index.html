@@ -1,0 +1,788 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <title></title>
+    <link rel="stylesheet" href="css/main.css"></link>
+    <link rel="stylesheet" href="css/jquery.mobile-1.2.0.css"></link>
+    <script type="text/javascript" charset="utf-8" src="js/cordova-2.7.0.js"></script>
+    <script type="text/javascript" charset="utf-8" src="js/jquery-1.8.3.min.js"></script>
+    <script type="text/javascript" charset="utf-8" src="js/jquery.mobile-1.2.0.min.js"></script>
+    <script type="text/javascript" charset="utf-8" src="js/my.js"></script>
+    <!-- ここからAndroid -->
+    <script type="text/javascript" charset="utf-8" src="js/analytics.js"></script>
+    <script type="text/javascript" charset="utf-8" src="js/datePickerPlugin.js"></script>
+    <script type="text/javascript" charset="utf-8" src="js/LocalNotification.js"></script>
+    <script type="text/javascript" charset="utf-8" src="js/webintent.js"></script>
+    <!-- ここまでAndroid -->
+    <!-- ここからiOS -->
+    <!-- ここまでiOS -->
+    <script type="text/javascript">
+    document.documentElement.style.webkitTouchCallout = 'none';
+
+    // グローバル
+    var thisLocale = '';
+    var anniversaryDatas = null;
+    var parameter = null;
+
+    // コンストラクタ的な。
+    $(document).ready(function(){
+        // api読み込み
+        $(document).on("deviceready", handleDeviceReady);
+    });
+
+    // データの初期設定
+    function initDateDatas() {
+        // 記念日データの初期化
+        var anniversaryDataString = window.localStorage.getItem('anniversaryDatas');
+        console.log(anniversaryDataString);
+        if(anniversaryDataString == null) {
+            // JSONデータの初期化
+            anniversaryDataString = "{}";
+            window.localStorage.setItem(
+                'anniversaryDatas',
+                anniversaryDataString
+            );
+            // シーケンスの初期化
+            window.localStorage.setItem('currentID' ,0);
+        }
+        // JSON化
+        anniversaryDatas = JSON.parse(anniversaryDataString);
+    }
+
+    // ボタンにイベントバインド
+    function bindTrackEvent(){
+        // 各種ボタンのクリックイベントをバインド
+        // トップ画面の追加ボタン
+        $('#topAddButton').click(function(){
+            // トラッキング
+            trackPage("register");
+            // 画面遷移
+            window.location = '#new';
+        });
+        // 登録画面のキャンセルボタン
+        $('#newCancelButton').click(function(){
+            // トラッキング
+            trackPage("top");
+            // 画面遷移
+            window.location = '#top';
+        });
+        // リマインド画面のホームボタン
+        $('#anniversaryHomeButton').click(function(){
+            // トラッキング
+            trackPage("top");
+            // 画面遷移
+            window.location = '#top';
+        });
+        // リマインド画面のアフィリ先リンク
+        $('#anniversaryLink').click(function(){
+            // トラッキング
+            trackEvent("affiliate", 40);
+            window.plugins.webintent.startActivity(
+                {
+                    action: window.plugins.webintent.ACTION_VIEW,
+                    url: $('#anniversaryLink').attr('href'),
+                },
+                function() {},
+                function() {alert('Failed to open URL via Android Intent');}
+            );
+        });
+    }
+
+    // コンテンツの描画
+    var handleDeviceReady = function (event){
+
+        // URLパラメータの解析
+        parameter = GetQueryString();
+
+        // 記念日データの初期化
+        if(anniversaryDatas == null) {
+            initDateDatas();
+        }
+
+        window.plugins.analytics.start(
+            function(){console.log("success!!");}, // success
+            function(){console.log("fail!!");}  // fail
+        );
+
+        // バインド
+        bindTrackEvent();
+
+        // データ形式のバージョン
+        var dataVersion = 1.0;
+        // 初回起動かどうか
+        var repeater = window.localStorage.getItem('repeater');
+        if(repeater == null) {
+            window.localStorage.setItem('repeater', 1);
+        }
+        if(window.localStorage.getItem('dataVersion') < dataVersion) {
+            // do something if need.
+        }
+        window.localStorage.setItem('dataVersion', dataVersion);
+
+        // ロケールの取得
+        navigator.globalization.getLocaleName(
+            function (locale) {
+                thisLocalize(locale.value);
+                thisLocale = locale.value;
+            },
+            function () {
+                // do nothing.
+            }
+        );
+
+        // アフィリ広告を出すかどうかのコントロール
+        $.getJSON(
+            'http://kyosuke25.com/AnniversaryMemo/ad.php',
+            {
+                "country" : getCountry(thisLocale),
+                "timestamp" : new Date().getTime(),
+            },
+            function(data) {
+                console.log('ad=' + data.ad + ' url=' + data.url);
+                if(data.ad == 0) {
+                    $('#anniversaryAffiliate').css("display", "none");
+                } else {
+                    $('#anniversaryLink').attr('href', "http://kyosuke25.com/AnniversaryMemo/" + data.url);
+                }
+            }
+        );
+
+        // トップページの描画
+        for(var i in anniversaryDatas) {
+            $('#topAnniversaries').append(
+                '<tr id="anniversary'
+                + i
+                + '"><td id="topTitle'
+                + i
+                + '" class="topTitle">'
+                + anniversaryDatas[i].title
+                + '</td><td id="topDay'
+                + i
+                + '" class="topDay">'
+                + calcCount(anniversaryDatas[i])
+                + '</td></tr>'
+            );
+            // いずれかの記念日データをクリックしたときの挙動をバインド
+            bindAnniversary(i);
+        }
+
+        // datepickerの読み込み
+        $('.nativedatepicker').on(
+            'click',
+            function(event) {
+                event.preventDefault();
+                var currentField = $(this);
+                var currentFieldHidden = $('#' + currentField.attr('id') + 'Hidden');
+                var myNewDate;
+                if(currentField.val() == ''){
+                    myNewDate = new Date();
+                }else{
+                    myNewDate = new Date(currentFieldHidden.val());
+                }
+                // Same handling for iPhone and Android
+                window.plugins.datePicker.show(
+                    {
+                        date : myNewDate,
+                        mode : 'date', // date or time or blank for both
+                        allowOldDates : true
+                    },
+                    function(returnDate) {
+                        var returnDateObj = new Date(returnDate);
+                        navigator.globalization.dateToString(
+                            returnDateObj,
+                            function (date) {
+                                currentField.val(date.value);
+                                currentFieldHidden.val(returnDateObj);
+                            },
+                            function () {
+                                // do nothing.
+                            },
+                            {formatLength:'medium', selector:'date'}
+                        );
+                    }
+                );
+                // This fixes the problem you mention at the bottom of this script with it not working a second/third time around, because it is in focus.
+                currentField.blur();
+            }
+        );
+
+        // 追加画面の保存ボタンのバインド
+        $('#newSaveButton').on(
+            'click',
+            function(){
+                var title = $('#newItemTitle').val();
+                var anniversary = $('#newDateHidden').val();
+                var type = $('input[name=newCountType]:checked').val()
+                if(title == '' || anniversary == '') {
+                    navigator.notification.alert(
+                        localize(thisLocale, '空白のままの項目があります。', 'You need to input all fields.'),
+                        function(){
+                            if(title == '') {
+                                $('#newItemTitle').addClass('newError');
+                            }
+                            if(anniversary == '') {
+                                $('#newDate').addClass('newError');
+                            }
+                        },
+                        localize(thisLocale, 'エラー', 'Alert'),
+                        localize(thisLocale, '戻る', 'OK')
+                    );
+                } else {
+                    var anniversaryData = {};
+                    anniversaryData['title'] = title;
+                    anniversaryData['date'] = anniversary;
+                    anniversaryData['type'] = type;
+                    // シーケンスを取得
+                    var currentID = window.localStorage.getItem('currentID');
+                    // 対戦カードデータ群に追加
+                    anniversaryDatas[currentID] = anniversaryData;
+                    // 文字列化して保存
+                    window.localStorage.setItem('anniversaryDatas' ,JSON.stringify(anniversaryDatas));
+                    // リストに追加
+                    $('#topAnniversaries').append('<tr id="anniversary' + currentID + '"><td id="topTitle' + currentID + '" class="topTitle">' + title + '</td><td id="topDay' + currentID + '" class="topDay">' + calcCount(anniversaryData) + '</td></tr>');
+                    // クリックイベントをバインド
+                    bindAnniversary(currentID);
+                    // LocalNotificationに登録
+                    if(type == 'togo') {
+                        addNotification(new Date(anniversary), title, currentID);
+                    } else if(type == 'togoRepeat') {
+                        var today = new Date();
+                        var yearRepeat = today.getFullYear();
+                        var tempDate = new Date(anniversary);
+                        var monthRepeat = tempDate.getMonth();
+                        var dayRepeat = tempDate.getDate();
+                        var dateRepeat = new Date(yearRepeat, monthRepeat, dayRepeat);
+                        if(dateRepeat < today){
+                            dateRepeat.setFullYear(yearRepeat + 1);
+                        }
+                        addNotification(dateRepeat, title, currentID);
+                    } else {
+                        // do nothing.
+                    }
+
+                    // フォームをクリア
+                    $('#newItemTitle').val('');
+                    $('#newDate').val('');
+                    $('#newDateHidden').val('');
+                    $('input[name="newCountType"][value="togo"]').attr('checked', 'checked');
+                    $('input[name="newCountType"][value="togoRepeat"]').removeAttr('checked');
+                    $('input[name="newCountType"][value="day"]').removeAttr('checked');
+                    $('input[name="newCountType"][value="togo"]').checkboxradio();
+                    $('input[name="newCountType"][value="togoRepeat"]').checkboxradio();
+                    $('input[name="newCountType"][value="day"]').checkboxradio();
+                    $('input[name="newCountType"][value="togo"]').checkboxradio('refresh');
+                    $('input[name="newCountType"][value="togoRepeat"]').checkboxradio('refresh');
+                    $('input[name="newCountType"][value="day"]').checkboxradio('refresh');
+                    $('#newItemTitle').removeClass('newError');
+                    $('#newDate').removeClass('newError');
+
+                    // currentIDをインクリメントして保存
+                    currentID++;
+                    window.localStorage.setItem('currentID' ,currentID);
+                    // トラッキング
+                    trackEvent("register", 10);
+                    trackPage("top");
+                    // 画面遷移
+                    window.location = '#top';
+                }
+            }
+        );
+
+        // 追加画面のキャンセルボタンをバインド
+        $('#newCancelButton').on(
+            'click',
+            function(){
+                // フォームをクリア
+                $('#newItemTitle').val('');
+                $('#newDate').val('');
+                $('#newDateHidden').val('');
+                $('input[name="newCountType"][value="togo"]').attr('checked', 'checked');
+                $('input[name="newCountType"][value="togoRepeat"]').removeAttr('checked');
+                $('input[name="newCountType"][value="day"]').removeAttr('checked');
+                $('input[name="newCountType"][value="togo"]').checkboxradio();
+                $('input[name="newCountType"][value="togoRepeat"]').checkboxradio();
+                $('input[name="newCountType"][value="day"]').checkboxradio();
+                $('input[name="newCountType"][value="togo"]').checkboxradio('refresh');
+                $('input[name="newCountType"][value="togoRepeat"]').checkboxradio('refresh');
+                $('input[name="newCountType"][value="day"]').checkboxradio('refresh');
+                $('#newItemTitle').removeClass('newError');
+                $('#newDate').removeClass('newError');
+            }
+        );
+
+        // Notificationからの遷移でNotificationを再登録
+        if(parameter != null) {
+            var anniversaryAnniversaryID = parameter["anniversaryID"];
+            // 指定されたIDの記念日データを取得
+            var anniversaryAnniversaryData = anniversaryDatas[anniversaryAnniversaryID];
+            // 繰り返し型なら1年後に通知を登録し直し。
+            if(anniversaryAnniversaryData['type'] == 'togoRepeat') {
+                // 記念日の日付を取得
+                var anniversaryCurrentDate = new Date(anniversaryAnniversaryData['date']);
+                anniversaryCurrentDate.setFullYear(new Date().getFullYear() + 1);
+                updateNotification(
+                      anniversaryCurrentDate,
+                      anniversaryAnniversaryData['title'],
+                      anniversaryAnniversaryID);
+            }
+            // 記念日内容の表示
+            $('#anniversaryDetail').html(anniversaryAnniversaryData['title']);
+            // アフィリリンク文言
+            $('#anniversaryLinkLabel').html(localize(thisLocale, anniversaryAnniversaryData['title'] + "のプレゼントを探す", "Search a present for " + anniversaryAnniversaryData['title']));
+            // トラッキング
+            trackPage("reminder");
+            window.location = "#anniversary";
+        } else {
+            // トラッキング
+            trackPage("top");
+        }
+    }
+
+    // 記念日リストのいずれかをクリックしたときのイベントバインド
+    // i: String : 記念日ID
+    function bindAnniversary(i) {
+        $('#anniversary' + i).click(
+            {id: i},
+            function(event){
+                // クリックイベントをアンバインド
+                $('#updateDeleteButton').off('click');
+                $('#updateChangeButton').off('click');
+                // クリックされた記念日IDを取得
+                var anniversaryID = event.data.id;
+                // 選択された記念日カードのデータを取得してセット
+                var anniversaryData = anniversaryDatas[anniversaryID];
+                $('#updateItemTitle').val(anniversaryData.title);
+                navigator.globalization.dateToString(
+                    new Date(anniversaryData.date),
+                    function (date) {
+                        $('#updateDate').val(date.value);
+                    },
+                    function () {
+                        // do nothing.
+                    },
+                    {formatLength:'medium', selector:'date'}
+                );
+                $('#updateDateHidden').val(anniversaryData.date);
+                var countType = anniversaryData.type;
+                if(countType == 'togo') {
+                    $('input[name="updateCountType"][value="togo"]').attr('checked', 'checked');
+                    $('input[name="updateCountType"][value="togoRepeat"]').removeAttr('checked');
+                    $('input[name="updateCountType"][value="day"]').removeAttr('checked');
+                    $('input[name="updateCountType"][value="togo"]').checkboxradio();
+                    $('input[name="updateCountType"][value="togoRepeat"]').checkboxradio();
+                    $('input[name="updateCountType"][value="day"]').checkboxradio();
+                    $('input[name="updateCountType"][value="togo"]').checkboxradio('refresh');
+                    $('input[name="updateCountType"][value="togoRepeat"]').checkboxradio('refresh');
+                    $('input[name="updateCountType"][value="day"]').checkboxradio('refresh');
+                } else if(countType == 'togoRepeat') {
+                    $('input[name="updateCountType"][value="togo"]').removeAttr('checked');
+                    $('input[name="updateCountType"][value="togoRepeat"]').attr('checked', 'checked');
+                    $('input[name="updateCountType"][value="day"]').removeAttr('checked');
+                    $('input[name="updateCountType"][value="togo"]').checkboxradio();
+                    $('input[name="updateCountType"][value="togoRepeat"]').checkboxradio();
+                    $('input[name="updateCountType"][value="day"]').checkboxradio();
+                    $('input[name="updateCountType"][value="togo"]').checkboxradio('refresh');
+                    $('input[name="updateCountType"][value="togoRepeat"]').checkboxradio('refresh');
+                    $('input[name="updateCountType"][value="day"]').checkboxradio('refresh');
+                } else if(countType == 'day') {
+                    $('input[name="updateCountType"][value="togo"]').removeAttr('checked');
+                    $('input[name="updateCountType"][value="togoRepeat"]').removeAttr('checked');
+                    $('input[name="updateCountType"][value="day"]').attr('checked', 'checked');
+                    $('input[name="updateCountType"][value="togo"]').checkboxradio();
+                    $('input[name="updateCountType"][value="togoRepeat"]').checkboxradio();
+                    $('input[name="updateCountType"][value="day"]').checkboxradio();
+                    $('input[name="updateCountType"][value="togo"]').checkboxradio('refresh');
+                    $('input[name="updateCountType"][value="togoRepeat"]').checkboxradio('refresh');
+                    $('input[name="updateCountType"][value="day"]').checkboxradio('refresh');
+                } else{
+                    // do nothing.
+                }
+                // 変更ボタン
+                $('#updateChangeButton').on(
+                    'click',
+                    function() {
+                        var anniversaryID = event.data.id;
+                        var title = $('#updateItemTitle').val();
+                        var anniversary = $('#updateDateHidden').val();
+                        var type = $('input[name=updateCountType]:checked').val();
+                        if(title == '' || anniversary == '') {
+                            navigator.notification.alert(
+                                localize(thisLocale, '空白のままの項目があります。', 'You need to input all fields.'),
+                                function(){
+                                    if(title == '') {
+                                        $('#updateItemTitle').addClass('updateError');
+                                    }
+                                    if(anniversary == '') {
+                                        $('#updateDate').addClass('updateError');
+                                    }
+                                },
+                                localize(thisLocale, 'エラー', 'Alert'),
+                                localize(thisLocale, '戻る', 'OK')
+                            );
+                        } else {
+                            var anniversaryData = anniversaryDatas[anniversaryID];
+                            anniversaryData['title'] = title;
+                            anniversaryData['date'] = anniversary;
+                            anniversaryData['type'] = type;
+                            anniversaryDatas[anniversaryID] = anniversaryData;
+                            // 文字列化して保存
+                            window.localStorage.setItem('anniversaryDatas' ,JSON.stringify(anniversaryDatas));
+
+                            // LocalNotificationに登録
+                            // まず登録済みのNotificationを削除
+                            window.plugins.localNotification.cancel(anniversaryID);
+                            if(type == 'togo') {
+                                addNotification(new Date(anniversary), title, anniversaryID);
+                            } else if(type == 'togoRepeat') {
+                                var today = new Date();
+                                var yearRepeat = today.getFullYear();
+                                var tempDate = new Date(anniversary);
+                                var monthRepeat = tempDate.getMonth();
+                                var dayRepeat = tempDate.getDate();
+                                var dateRepeat = new Date(yearRepeat, monthRepeat, dayRepeat);
+                                if(dateRepeat < today){
+                                    dateRepeat.setFullYear(yearRepeat + 1);
+                                }
+                                addNotification(dateRepeat, title, anniversaryID);
+                            } else {
+                                // do nothing.
+                            }
+
+                            // フォームをクリア
+                            $('#updateItemTitle').val('');
+                            $('#updateDate').val('');
+                            $('#updateDateHidden').val('');
+                            $('input[name="updateCountType"][value="togo"]').attr('checked', 'checked');
+                            $('input[name="updateCountType"][value="togoRepeat"]').removeAttr('checked');
+                            $('input[name="updateCountType"][value="day"]').removeAttr('checked');
+                            $('input[name="updateCountType"][value="togo"]').checkboxradio();
+                            $('input[name="updateCountType"][value="togoRepeat"]').checkboxradio();
+                            $('input[name="updateCountType"][value="day"]').checkboxradio();
+                            $('input[name="updateCountType"][value="togo"]').checkboxradio('refresh');
+                            $('input[name="updateCountType"][value="togoRepeat"]').checkboxradio('refresh');
+                            $('input[name="updateCountType"][value="day"]').checkboxradio('refresh');
+                            $('#updateItemTitle').removeClass('updateError');
+                            $('#updateDate').removeClass('updateError');
+                            // トップ画面を再描画
+                            $('#topTitle' + anniversaryID).html(title);
+                            $('#topDay' + anniversaryID).html(calcCount(anniversaryData));
+                            // トラッキング
+                            trackEvent("update", 20);
+                            trackPage("top");
+                            // 画面遷移
+                            window.location = '#top';
+                        }
+                    }
+                );
+                // 戻るボタン
+                $('#updateBackButton').on(
+                    'click',
+                    function() {
+                        // トラッキング
+                        trackPage("top");
+                        // 画面遷移
+                        window.location = "#top";
+                        // フォームをクリア
+                        $('#updateItemTitle').val('');
+                        $('#updateDate').val('');
+                        $('#updateDateHidden').val('');
+                        $('input[name="updateCountType"][value="togo"]').attr('checked', 'checked');
+                        $('input[name="updateCountType"][value="togoRepeat"]').removeAttr('checked');
+                        $('input[name="updateCountType"][value="day"]').removeAttr('checked');
+                        $('input[name="updateCountType"][value="togo"]').checkboxradio();
+                        $('input[name="updateCountType"][value="togoRepeat"]').checkboxradio();
+                        $('input[name="updateCountType"][value="day"]').checkboxradio();
+                        $('input[name="updateCountType"][value="togo"]').checkboxradio('refresh');
+                        $('input[name="updateCountType"][value="togoRepeat"]').checkboxradio('refresh');
+                        $('input[name="updateCountType"][value="day"]').checkboxradio('refresh');
+                        $('#updateItemTitle').removeClass('updateError');
+                        $('#updateDate').removeClass('updateError');
+                    }
+                );
+                // 削除ボタン
+                $('#updateDeleteButton').on(
+                    'click',
+                    function() {
+                        setDeleteButtonDialog(anniversaryDatas, anniversaryID);
+                        window.plugins.localNotification.cancel(anniversaryID);
+                    }
+                );
+                // トラッキング
+                trackPage("update");
+                // 画面遷移
+                window.location = "#update";
+            }
+        );
+    }
+    // 削除ダイアログ表示
+    // anniversaryDatas: JSON
+    function setDeleteButtonDialog(anniversaryDatas, anniversaryID) {
+        navigator.notification.confirm(
+            localize(thisLocale, 'このデータを削除しますか？', 'Delete this?'),
+            function(buttonIndex){
+                if(buttonIndex == 1) {
+                    deleteAnniversary(anniversaryDatas, anniversaryID);
+                    $('#anniversary' + anniversaryID).css('display', 'none');
+                    // トラッキング
+                    trackEvent("delete", 30);
+                    trackPage("top");
+                    // 画面遷移
+                    window.location= "#top";
+                }
+            },
+            localize(thisLocale, '確認', 'Confirm'),
+            localize(thisLocale, 'はい,いいえ', 'Yes,No')
+        );
+    }
+    // 選択した記念日を削除する。
+    // anniversaryDatas: JSON
+    function deleteAnniversary(anniversaryDatas, anniversaryID){
+        delete anniversaryDatas[anniversaryID];
+        window.localStorage.setItem("anniversaryDatas", JSON.stringify(anniversaryDatas));
+    }
+    // 日付を計算する。
+    // anniversaryData : array
+    function calcCount(anniversaryData) {
+        var tempToday = new Date();
+        var today = new Date(tempToday.getFullYear(), tempToday.getMonth(), tempToday.getDate());
+        var date =  new Date(anniversaryData.date);
+        var type = anniversaryData.type;
+        var displayString = '';
+        if(type == 'togo') {
+            var diff = ~~((date - today) / 86400000);
+            if(diff == 0){
+                return localize(thisLocale, '今日', 'Today');
+            }else if(diff == 1){
+                return localize(thisLocale, '明日', 'Tomorrow');
+            }else if(diff > 1){
+                return localize(thisLocale, 'あと' + diff + '日', diff + ' days later');
+            }else if(diff <= -1){
+                return localize(thisLocale, '昨日', 'Yesterday');
+            }else if(diff < -1){
+                return localize(thisLocale, diff + '日前', diff + ' days before');
+            }else{
+                // never happen.
+            }
+        } else if(type == 'togoRepeat') {
+            var yearRepeat = today.getFullYear();
+            var monthRepeat = date.getMonth();
+            var dayRepeat = date.getDate();
+            var dateRepeat = new Date(yearRepeat, monthRepeat, dayRepeat);
+            var diff;
+            if(dateRepeat < today){
+                dateRepeat.setFullYear(yearRepeat + 1);
+            }
+            diff = ~~((dateRepeat - today) / 86400000);
+            if(diff == 0){
+                return localize(thisLocale, '今日', 'Today');
+            }else if(diff == 1){
+                return localize(thisLocale, '明日', 'Tomorrow');
+            }else if(diff > 1){
+                return localize(thisLocale, 'あと' + diff + '日', diff + ' days later');
+            }else{
+                return localize(thisLocale, 'あと' + diff + '日', diff + ' days later');
+            }
+        } else if(type == 'day') {
+            var diff = ~~((today - date) / 86400000);
+            return localize(thisLocale, diff + '日目',  'Day ' + diff);
+        } else {
+            // do nothing.
+        }
+    }
+    // LocalNotificationに追加
+    // date: Date
+    // title: String
+    // id: String
+    function addNotification(date, title, id) {
+        // 時分秒をゼロクリア。
+        date.setHours(0);
+        date.setMinutes(0);
+        date.setSeconds(0);
+        // 登録
+        window.plugins.localNotification.add({
+            date: date,
+            message: title,
+            ticker: title,
+            id: id
+        });
+    }
+    // LocalNotificationのアップデート
+    // date: Date
+    // title: String
+    // id: String
+    function updateNotification(date, title, id) {
+        // まずキャンセル
+        window.plugins.localNotification.cancel(id);
+        // 登録
+        addNotification(date, title, id);
+    }
+    // URLパラメータの解析
+    function GetQueryString() {
+        if( 1 < window.location.search.length ) {
+            // 最初の1文字 （クエスチョンマーク) を除いた文字列を取得する
+            var query = window.location.search.substring( 1 );
+            // クエリの区切り記号 (アンパサンド) で文字列を配列に分割する
+            var parameters = query.split( '&' );
+            var result = new Object();
+            for( var i = 0; i < parameters.length; i++ ) {
+                // パラメータ名とパラメータ値に分割する
+                var element = parameters[ i ].split( '=' );
+                var paramName = decodeURIComponent( element[ 0 ] );
+                var paramValue = decodeURIComponent( element[ 1 ] );
+                // パラメータ名をキーとして連想配列に追加する
+                result[ paramName ] = decodeURIComponent( paramValue );
+            }
+            return result;
+        }
+        return null;
+    }
+    // ページのトラッキング
+    // id : String
+    function trackPage(id) {
+        window.plugins.analytics.trackPageView(
+            id,
+            function(){},
+            function(){});
+    }
+    // イベントのトラッキング
+    // event : String
+    // value : int
+    function trackEvent(label, value) {
+        window.plugins.analytics.trackEvent(
+            "Target",
+            "Click",
+            label,
+            value,
+            function(){console.log("TrackEvent success.");},
+            function(){console.log("TrackEvent fail.");}
+        );
+    }
+    // ローカライズ
+    function thisLocalize(deviceLocale) {
+        // top
+        $("#topTitle").html(localize(deviceLocale, "記念日メモ", "Anniversary Memo"));
+        $("#topAddButtonLabel").html(localize(deviceLocale, "追加する", "Add an anniversary"));
+        // new
+        $("#newTitle").html(localize(deviceLocale, "新規登録", "Register"));
+        $("#newItemTitleLabel").html(localize(deviceLocale, "タイトル （例：私の誕生日）", "Title (ex.My birthday)"));
+        $("#newDateLabel").html(localize(deviceLocale, "日付", "Date of the anniversary"));
+        $("#newCountTypeLabel").html(localize(deviceLocale, "カウント形式", "Type of count"));
+        $("#newCountTypeToGo").html(localize(deviceLocale, "あと○日（1回だけ）", "X days to go(just once)"));
+        $("#newCountTypeToGoRepeat").html(localize(deviceLocale, "あと○日（繰り返し）", "X days to go(repeat)"));
+        $("#newCountTypeDay").html(localize(deviceLocale, "○日目", "Day X"));
+        $("#newSaveButtonLabel").html(localize(deviceLocale, "保存", "Save"));
+        $("#newCancelButtonLabel").html(localize(deviceLocale, "キャンセル", "Cancel"));
+        // update
+        $("#updateTitle").html(localize(deviceLocale, "修正", "Edit"));
+        $("#updateItemTitleLabel").html(localize(deviceLocale, "タイトル （例：私の誕生日）", "Title (ex.My birthday)"));
+        $("#updateDateLabel").html(localize(deviceLocale, "日付", "Date of the anniversary"));
+        $("#updateCountTypeLabel").html(localize(deviceLocale, "表示形式", "Format"));
+        $("#updateCountTypeToGo").html(localize(deviceLocale, "あと○日（1回だけ）", "X days to go(just once)"));
+        $("#updateCountTypeToGoRepeat").html(localize(deviceLocale, "あと○日（繰り返し）", "X days to go(repeat)"));
+        $("#updateCountTypeDay").html(localize(deviceLocale, "○日目", "Day X"));
+        $("#updateChangeButtonLabel").html(localize(deviceLocale, "変更", "Change"));
+        $("#updateBackButtonLabel").html(localize(deviceLocale, "戻る", "Back"));
+        $("#updateDeleteButtonLabel").html(localize(deviceLocale, "削除", "Delete"));
+        // anniversary
+        $("#anniversaryTitle").html(localize(deviceLocale, "記念日カウンター", "Anniversary Counter"));
+        $("#anniversary1").html(localize(deviceLocale, "今日は", "Today is"));
+        $("#anniversary2").html(localize(deviceLocale, "です。", ""));
+        $("#anniversaryMessage").html(localize(deviceLocale, "お忘れなく！", "Don't foget it!"));
+        $("#anniversaryHomeButtonLabel").html(localize(deviceLocale, "トップ画面へ", "Home"));
+    }
+    </script>
+</head>
+<body>
+    <div data-role="page" id="top">
+        <div id="topContainer">
+            <div data-role="header"><h1 id="topTitle"></h1></div>
+            <div class="container">
+                <table id="topAnniversaries">
+                </table>
+                <div class="buttonContainer">
+                    <a href="javascript:void(0);false;" id="topAddButton" data-role="button" data-theme="b" data-icon="plus" data-inline="true" class="topButton"><span id="topAddButtonLabel"></span></a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div data-role="page" id="new">
+        <div id="newContainer">
+            <div data-role="header"><h1 id="newTitle"></h1></div>
+            <div class="container">
+                <label for="newItemTitle" id="newItemTitleLabel" class="newItemTitle"></label>
+                <input type="text" name="newItemTitle" id="newItemTitle" value="" />
+                <label for="newDate" id="newDateLabel" class="newDate"></label>
+                <input type="text" name="newDate" id="newDate" class="nativedatepicker" value="" />
+                <input type="hidden" name="newDateHidden" id="newDateHidden" value="" />
+                <!-- HTML5ネイティブの書き方。Androidでは無理やったから上のようにプラグインで対応。iOSでいける？
+                <input type="date" name="newDate" id="newDate" value="" />
+                -->
+                <fieldset data-role="controlgroup">
+                    <legend id="newCountTypeLabel"></legend>
+                    <input type="radio" name="newCountType" id="togoType" value="togo" checked="checked" />
+                    <label for="togoType" id="newCountTypeToGo"></label>
+                    <input type="radio" name="newCountType" id="togoTypeRepeat" value="togoRepeat" />
+                    <label for="togoTypeRepeat" id="newCountTypeToGoRepeat"></label>
+                    <input type="radio" name="newCountType" id="dayType" value="day"  />
+                    <label for="dayType" id="newCountTypeDay"></label>
+                </fieldset>
+                <div class="buttonContainer">
+                    <a href="javascript:void(0);false;" id="newSaveButton" data-role="button" data-theme="b" data-icon="plus" data-inline="true" class="newButton"><span id="newSaveButtonLabel"></span></a>
+                </div>
+                <div class="buttonContainer">
+                    <a href="javascript:void(0);false;" id="newCancelButton" data-role="button" data-theme="b" data-inline="true" class="newButton"><span id="newCancelButtonLabel"></span></a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div data-role="page" id="update">
+        <div id="updateContainer">
+            <div data-role="header"><h1 id="updateTitle"></h1></div>
+            <div class="container">
+                <label for="updateItemTitle" id="updateItemTitleLabel" class="updateItemTitle"></label>
+                <input type="text" name="updateItemTitle" id="updateItemTitle" value="" />
+                <label for="updateDate" id="updateDateLabel" class="updateDate"></label>
+                <input type="text" name="updateDate" id="updateDate" class="nativedatepicker" value="" />
+                <input type="hidden" name="updateDateHidden" id="updateDateHidden" value="" />
+                <!-- HTML5ネイティブの書き方。Androidでは無理やったから上のようにプラグインで対応。iOSでいける？
+                <input type="date" name="updateDate" id="updateDate" value="" />
+                -->
+                <fieldset data-role="controlgroup">
+                    <legend id="updateCountTypeLabel"></legend>
+                    <input type="radio" name="updateCountType" id="togoType" value="togo" checked="checked" />
+                    <label for="togoType" id="updateCountTypeToGo"></label>
+                    <input type="radio" name="updateCountType" id="togoTypeRepeat" value="togoRepeat" />
+                    <label for="togoTypeRepeat" id="updateCountTypeToGoRepeat"></label>
+                    <input type="radio" name="updateCountType" id="dayType" value="day"  />
+                    <label for="dayType" id="updateCountTypeDay"></label>
+                </fieldset>
+                <div class="buttonContainer">
+                    <a href="javascript:void(0);false;" id="updateChangeButton" data-role="button" data-theme="b" data-icon="check" data-inline="true" class="updateChangeButton"><span id="updateChangeButtonLabel"></span></a>
+                </div>
+                <div class="buttonContainer">
+                    <a href="javascript:void(0);false;" id="updateBackButton" data-role="button" data-theme="b" data-icon="arrow-l" data-inline="true" class="updateBackButton"><span id="updateBackButtonLabel"></span></a>
+                </div>
+                <div class="buttonContainer">
+                    <a href="javascript:void(0);false;" id="updateDeleteButton" data-role="button" data-theme="g" data-icon="delete" data-inline="true" class="updateDeleteButton"><span id="updateDeleteButtonLabel"></span></a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div data-role="page" id="anniversary">
+        <div id="anniversaryContainer">
+            <div data-role="header"><h1 id="anniversaryTitle"></h1></div>
+            <div class="container">
+                <div id="anniversary1"></div>
+                <div id="anniversaryDetail"></div>
+                <div id="anniversary2"></div>
+                <div id="anniversaryMessage"></div>
+                <div id="anniversaryAffiliate"><a href="#" id="anniversaryLink"><span id="anniversaryLinkLabel"></span></a></div>
+                <div class="buttonContainer">
+                    <a href="javascript:void(0);false;" id="anniversaryHomeButton" data-role="button" data-theme="b" data-icon="home" data-inline="true" class="homeButton"><span id="anniversaryHomeButtonLabel"></span></a>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
